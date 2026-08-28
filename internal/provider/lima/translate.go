@@ -36,6 +36,13 @@ import (
 // cross-provider consistency with docs like agent-provisioning.md
 // ("--agent=claude creates and runs as a claude user" — true regardless
 // of provider). Create() always sets .user.name explicitly.
+//
+// Passwordless sudo itself is NOT forced via a `.user.sudo` expression:
+// Lima's limayaml.User struct only has name/comment/home/shell/uid fields
+// (see lima-vm/lima pkg/limayaml) — there is no `sudo` field, so a
+// `.user.sudo = true` --set expression is rejected by `limactl` as an
+// unknown field. Passwordless sudo comes for free from Lima's own
+// cloud-init `user:` provisioning regardless of the name given here.
 const defaultUsername = "agent"
 
 // buildCreateArgs returns the args for `limactl create`, translating spec
@@ -92,11 +99,11 @@ func buildSetExpressions(spec provider.InstanceSpec) []string {
 	if username == "" {
 		username = defaultUsername
 	}
-	exprs = append(exprs, fmt.Sprintf(".user.name = %q", username))
 	// Forced unconditionally (not just when the template omits its own
-	// default) so --root never hangs on an unexpected sudo password
-	// prompt regardless of which template spec.Image points at.
-	exprs = append(exprs, ".user.sudo = true")
+	// default) for cross-provider username consistency — see the
+	// defaultUsername doc comment above for why `.user.sudo` is not
+	// similarly forced.
+	exprs = append(exprs, fmt.Sprintf(".user.name = %q", username))
 
 	for _, m := range spec.Mounts {
 		exprs = append(exprs, fmt.Sprintf(

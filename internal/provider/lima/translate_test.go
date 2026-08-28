@@ -25,7 +25,6 @@ func TestBuildCreateArgs_Full(t *testing.T) {
 		"--set", `.memory = "4GiB"`,
 		"--set", `.disk = "20GiB"`,
 		"--set", `.user.name = "claude"`,
-		"--set", `.user.sudo = true`,
 		"--set", `.mounts += [{"location": "/host/ws", "mountPoint": "/workspace", "writable": false}]`,
 		"--set", `.portForwards += [{"guestPort": 80, "hostPort": 8080, "proto": "tcp"}]`,
 		"template://ubuntu-lts",
@@ -40,24 +39,17 @@ func TestBuildCreateArgs_Full(t *testing.T) {
 // Incus too, but a bare spec (no --agent) must still get a fixed,
 // predictable username on Lima rather than whatever the template's own
 // cloud-init default happens to be (which would vary per developer
-// machine). .user.sudo=true must also always be present, so --root never
-// hangs on an unexpected password prompt regardless of the template.
+// machine).
 func TestBuildCreateArgs_DefaultUsername_FallsBackToAgent(t *testing.T) {
 	got := buildCreateArgs(provider.InstanceSpec{Name: "demo", Image: "template://ubuntu-lts"})
-	var sawUsername, sawSudo bool
+	var sawUsername bool
 	for _, a := range got {
 		if a == `.user.name = "agent"` {
 			sawUsername = true
 		}
-		if a == ".user.sudo = true" {
-			sawSudo = true
-		}
 	}
 	if !sawUsername {
 		t.Errorf("buildCreateArgs() = %v, want it to include .user.name = \"agent\"", got)
-	}
-	if !sawSudo {
-		t.Errorf("buildCreateArgs() = %v, want it to include .user.sudo = true", got)
 	}
 }
 

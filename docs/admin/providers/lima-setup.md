@@ -29,14 +29,20 @@ create request: CPU/memory/disk limits, mounts, and published ports.
 > just more invocations. Either way, `agentctl create` never leaves the
 > instance in a partially-configured state you'd need to fix by hand.
 
-agentctl always forces two fields regardless of what the template's own
+agentctl always forces one field regardless of what the template's own
 cloud-init defaults are:
 
 - `.user.name` — the sandbox's non-root default user (`agent` unless
   `--agent=<name>` or an explicit override sets it otherwise), for
   consistency with the Incus backend's own non-root-by-default behavior.
-- `.user.sudo = true` — passwordless sudo, so `agentctl exec/shell --root`
-  never hangs on an unexpected password prompt.
+
+Passwordless sudo is *not* forced via a `.user.sudo` field — Lima's
+`limayaml.User` type has no such field (only `name`/`comment`/`home`/
+`shell`/`uid`), and an earlier version of agentctl that tried to set one
+was rejected by `limactl` as an unknown field. It isn't needed anyway:
+Lima's own cloud-init `user:` provisioning grants passwordless sudo to
+whichever user it creates, regardless of the name given here, so
+`agentctl exec/shell --root` works out of the box.
 
 `agentctl exec`/`shell` run as that user via `limactl shell <name> --
 <command>`; `--root` runs `sudo -n <command>` (exec) or `sudo -i` (shell)
