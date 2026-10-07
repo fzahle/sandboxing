@@ -158,6 +158,14 @@ func checkDomain(d string) error {
 	if strings.Contains(name, ":") {
 		return fmt.Errorf("domain %q includes a port: list ports separately", d)
 	}
+	// A fully-qualified name may end in a dot; both backends accept that.
+	name = strings.TrimSuffix(name, ".")
+	labels := strings.Split(name, ".")
+	if last := labels[len(labels)-1]; last != "" && strings.Trim(last, "0123456789") == "" {
+		// No top-level domain is all digits, so this was meant as an IP
+		// address (e.g. 10.0.0.300) — one that would never match.
+		return fmt.Errorf("%q is not a valid IP address (and a hostname can't end in a number)", d)
+	}
 	if !validHostname(name) {
 		return fmt.Errorf("%q is not a valid hostname, \"*.\" wildcard, or IP address", d)
 	}
@@ -196,7 +204,9 @@ func ReadAllowFile(path string) ([]AllowRule, error) {
 		rules []AllowRule
 		errs  []error
 	)
-	for i, line := range strings.Split(string(data), "\n") {
+	// Some Windows editors start a UTF-8 file with a byte-order mark.
+	text := strings.TrimPrefix(string(data), "\ufeff")
+	for i, line := range strings.Split(text, "\n") {
 		line, _, _ = strings.Cut(line, "#")
 		if strings.TrimSpace(line) == "" {
 			continue

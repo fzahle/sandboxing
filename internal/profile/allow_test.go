@@ -19,6 +19,8 @@ func TestParseAllowEntry_Valid(t *testing.T) {
 		{" Example.COM:80, 443 ", AllowRule{Domain: "example.com", Ports: []int{80, 443}}},
 		{"*.example.com:443", AllowRule{Domain: "*.example.com", Ports: []int{443}}},
 		{"internal_host.corp:8443", AllowRule{Domain: "internal_host.corp", Ports: []int{8443}}},
+		{"example.com.:443", AllowRule{Domain: "example.com.", Ports: []int{443}}}, // fully qualified
+		{"123.example.com", AllowRule{Domain: "123.example.com"}},
 		{"203.0.113.7:443", AllowRule{Domain: "203.0.113.7", Ports: []int{443}}},
 		{"203.0.113.7", AllowRule{Domain: "203.0.113.7"}},
 		{"2001:db8::1", AllowRule{Domain: "2001:db8::1"}},
@@ -72,6 +74,14 @@ func TestParseAllowEntry_Invalid(t *testing.T) {
 		{"foo.*.example.com", "not a valid hostname"},
 		{"git@github.com:org/repo.git", "not a valid hostname"},
 		{"-bad.example.com", "not a valid hostname"},
+		{"example.com..", "not a valid hostname"},
+		{".", "not a valid hostname"},
+		// Mistyped IPv4 addresses would otherwise pass as hostnames that
+		// never resolve or match.
+		{"10.0.0.300:443", "not a valid IP address"},
+		{"256.1.1.1", "not a valid IP address"},
+		{"10.0.0.1.", "not a valid IP address"},
+		{"443", "not a valid IP address"},
 		{"[2001:db8::1", `missing "]"`},
 		{"[example.com]:443", "not an IPv6 address"},
 		{"[2001:db8::1]443", "unexpected"},
@@ -100,7 +110,7 @@ func writeFile(t *testing.T, path, content string) {
 
 func TestReadAllowFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "allow.txt")
-	writeFile(t, path, "# package mirrors\n"+
+	writeFile(t, path, "\ufeff# package mirrors\n"+ // a byte-order mark, as some editors write
 		"mirror.example.com:80,443\r\n"+ // CRLF line endings are fine
 		"\n"+
 		"   \n"+
@@ -241,7 +251,7 @@ spec:
 }
 
 func TestValidate_RejectsDomainsThatCanNeverMatch(t *testing.T) {
-	for _, domain := range []string{"https://example.com", "example.com/path", "example.com:443", "10.0.0.0/8", " example.com"} {
+	for _, domain := range []string{"https://example.com", "example.com/path", "example.com:443", "10.0.0.0/8", " example.com", "10.0.0.300"} {
 		p := &Profile{
 			APIVersion: APIVersion, Kind: Kind, Metadata: Metadata{Name: "x"},
 			Spec: Policy{Network: NetworkPolicy{Allow: []AllowRule{{Domain: domain, Ports: []int{443}}}}},
