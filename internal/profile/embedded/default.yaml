@@ -10,6 +10,10 @@ spec:
   network:
     denyLAN: true
     allow:
+      # The Claude API by name: on Incus a wildcard only resolves its
+      # apex (anthropic.com), so "*.anthropic.com" alone wouldn't cover it.
+      - domain: "api.anthropic.com"
+        ports: [443]
       - domain: "*.anthropic.com"
         ports: [443]
       - domain: "pypi.org"

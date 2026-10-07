@@ -42,6 +42,13 @@ checked out to a known path) of profile YAML files, referenced via
 - Keep a `strict` profile (empty allowlist) available as the safe default for
   anyone unsure what a task needs, and let users add `--allow` entries
   per-invocation rather than widening a shared profile for one use case.
+- Prefer `allowPresets` (e.g. `[apt, pypi, github]`) to hand-copied host
+  lists for public package sources; for hosts of your own (internal
+  mirrors, a self-hosted GitLab), keep one
+  [allow file](../user/profiles-and-policies.md#allow-files) in the profile
+  directory and point several profiles at it with `allowFile:` — a
+  relative path resolves against the profile's own directory, so it works
+  wherever the directory is checked out.
 
 ## Not built yet
 

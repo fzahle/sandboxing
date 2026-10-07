@@ -106,8 +106,8 @@ and the in-guest check.
 
 - **Clients have to use the proxy.** Anything that honors
   `http_proxy`/`https_proxy` — curl and wget (and so the `curl | sh`
-  installers `--agent` runs), pip, npm, git over HTTPS, most language HTTP
-  clients — works normally; check the proxy support of anything else you
+  installers `--agent` runs), apt, pip, npm, git over HTTPS, most language
+  HTTP clients — works normally; check the proxy support of anything else you
   rely on (Node's built-in `fetch`, for one, ignores these variables unless
   told otherwise). Connections that don't go through the proxy (raw TCP,
   UDP, `git` over SSH, a client that ignores proxy settings) are refused

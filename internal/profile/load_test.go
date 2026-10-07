@@ -81,3 +81,19 @@ func TestLoadNamed_FallsBackToBuiltin(t *testing.T) {
 		t.Fatal("expected an error for an unknown profile name")
 	}
 }
+
+// The built-in default profile is meant to let an agent reach the Claude
+// API; on Incus only a wildcard's apex is resolved, so it has to name
+// api.anthropic.com itself.
+func TestBuiltinDefault_AllowsClaudeAPIByName(t *testing.T) {
+	p, err := LoadNamed("default", "")
+	if err != nil {
+		t.Fatalf("LoadNamed(default): %v", err)
+	}
+	for _, r := range p.Spec.Network.AllowRules() {
+		if r.Domain == "api.anthropic.com" {
+			return
+		}
+	}
+	t.Errorf("default profile allowlist %+v doesn't name api.anthropic.com", p.Spec.Network.Allow)
+}

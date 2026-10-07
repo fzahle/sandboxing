@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 
@@ -43,7 +44,9 @@ type Body struct {
 	Overrides profile.Policy `yaml:"overrides"`
 }
 
-// LoadFile parses a Spec document from path with strict decoding.
+// LoadFile parses a Spec document from path with strict decoding,
+// validating its overrides the way a profile's spec is validated and
+// expanding their allowFile, if any (see profile.LoadFile).
 func LoadFile(path string) (*Spec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -66,6 +69,14 @@ func LoadFile(path string) (*Spec, error) {
 	}
 	if s.Body.Image == "" {
 		return nil, fmt.Errorf("%s: spec.image is required", path)
+	}
+	if err := profile.ValidatePolicy(s.Body.Overrides); err != nil {
+		return nil, fmt.Errorf("%s: spec.overrides: %w", path, err)
+	}
+	// A relative allowFile is relative to the spec's own directory, the
+	// same rule profiles follow.
+	if err := s.Body.Overrides.Network.ExpandAllowFile(filepath.Dir(path)); err != nil {
+		return nil, fmt.Errorf("%s: spec.overrides: %w", path, err)
 	}
 	return &s, nil
 }

@@ -13,6 +13,9 @@ import (
 // fields are a load error, not silently ignored. This is a security policy
 // file — a typo'd field (e.g. "denyLan" instead of "denyLAN") should never
 // fail open.
+//
+// Raw YAML has no location for a relative allowFile to be resolved
+// against, so LoadBytes leaves it unexpanded; LoadFile expands it.
 func LoadBytes(data []byte) (*Profile, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -26,7 +29,9 @@ func LoadBytes(data []byte) (*Profile, error) {
 	return &p, nil
 }
 
-// LoadFile reads and parses a Profile from a path.
+// LoadFile reads and parses a Profile from a path, appending the entries
+// of its allowFile, if it names one (resolved relative to the profile's
+// own directory), to its allow rules.
 func LoadFile(path string) (*Profile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -34,6 +39,9 @@ func LoadFile(path string) (*Profile, error) {
 	}
 	p, err := LoadBytes(data)
 	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := p.Spec.Network.ExpandAllowFile(filepath.Dir(path)); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return p, nil

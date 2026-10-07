@@ -14,17 +14,19 @@ import (
 
 func newCreateCmd() *cobra.Command {
 	var (
-		image     string
-		specFile  string
-		profiles  []string
-		allow     []string
-		denyLAN   bool
-		allowLAN  bool
-		ports     []string
-		cpuCores  int
-		memory    string
-		diskSize  string
-		agentName string
+		image        string
+		specFile     string
+		profiles     []string
+		allow        []string
+		allowFiles   []string
+		allowPresets []string
+		denyLAN      bool
+		allowLAN     bool
+		ports        []string
+		cpuCores     int
+		memory       string
+		diskSize     string
+		agentName    string
 	)
 
 	cmd := &cobra.Command{
@@ -77,12 +79,9 @@ func newCreateCmd() *cobra.Command {
 
 			var flagOverrides profile.Policy
 			flagOverrides.Network.DenyLAN = denyLAN && !allowLAN
-			for _, a := range allow {
-				rule, err := parseAllowFlag(a)
-				if err != nil {
-					return err
-				}
-				flagOverrides.Network.Allow = append(flagOverrides.Network.Allow, rule)
+			flagOverrides.Network.Allow, flagOverrides.Network.AllowPresets, err = allowFlagRules(allow, allowFiles, allowPresets)
+			if err != nil {
+				return err
 			}
 			flagOverrides.Network.Allow = append(flagOverrides.Network.Allow, agentSpec.AllowDomains...)
 			for _, portSpec := range ports {
@@ -115,7 +114,7 @@ func newCreateCmd() *cobra.Command {
 					return err
 				}
 			}
-			if len(policy.Network.Allow) > 0 {
+			if len(policy.Network.AllowRules()) > 0 {
 				if err := gateOrBlock(w, providerName, p.Capabilities().Get(provider.FeatureNetworkACL), fp); err != nil {
 					return err
 				}
@@ -166,7 +165,11 @@ func newCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&image, "image", "", "image reference to create the instance from")
 	cmd.Flags().StringVar(&specFile, "spec", "", "path to a Spec YAML file (see docs/reference); mutually exclusive with --image/--profile")
 	cmd.Flags().StringSliceVar(&profiles, "profile", nil, "named security profile(s) to apply, in order (repeatable)")
-	cmd.Flags().StringSliceVar(&allow, "allow", nil, "egress allowlist entry \"domain[:port,port]\" (repeatable)")
+	// StringArray, not StringSlice, for --allow and --allow-file: a slice
+	// flag splits its value at commas, which would cut "host:80,443" in two.
+	cmd.Flags().StringArrayVar(&allow, "allow", nil, "egress allowlist entry: \"host[:port,port]\", \"*.domain[:ports]\", or an http(s):// URL (repeatable)")
+	cmd.Flags().StringArrayVar(&allowFiles, "allow-file", nil, "file of egress allowlist entries, one --allow value per line, # for comments (repeatable)")
+	cmd.Flags().StringSliceVar(&allowPresets, "allow-preset", nil, "allow a built-in group of package-source/git hosts: "+strings.Join(profile.PresetNames(), ", ")+" (repeatable; \"agentctl profile presets\" lists their hosts)")
 	cmd.Flags().BoolVar(&denyLAN, "deny-lan", true, "block egress to RFC1918/link-local ranges")
 	cmd.Flags().BoolVar(&allowLAN, "allow-lan", false, "opt out of --deny-lan for this instance")
 	cmd.Flags().StringSliceVar(&ports, "port", nil, "publish a port \"host:guest[/proto]\" (repeatable)")

@@ -46,8 +46,13 @@ type NetworkPolicy struct {
 	DenyLAN bool `yaml:"denyLAN"`
 	// Allow is the egress allowlist; everything not matched is denied.
 	Allow []AllowRule `yaml:"allow"`
-	// AllowFile optionally points at an external policy file merged into
-	// Allow at load time (--allow-file).
+	// AllowPresets names built-in groups of allow rules (see Presets),
+	// added to Allow when the policy is applied (--allow-preset).
+	AllowPresets []string `yaml:"allowPresets"`
+	// AllowFile optionally points at an allow file (see ReadAllowFile)
+	// whose entries are appended to Allow when the profile or spec naming
+	// it is loaded (see ExpandAllowFile), so it's empty after loading. A
+	// relative path is relative to that profile or spec file's directory.
 	AllowFile string `yaml:"allowFile"`
 	// Ports are host:guest port publishes, Docker-style.
 	Ports []PortPublish `yaml:"ports"`
@@ -84,11 +89,26 @@ type Console struct {
 	Viewer string `yaml:"viewer"`
 }
 
+// AllowRules returns the complete egress allowlist: the Allow rules, then
+// those of each preset in AllowPresets. An unknown preset name adds
+// nothing (Validate reports those).
+func (n NetworkPolicy) AllowRules() []AllowRule {
+	rules := append([]AllowRule(nil), n.Allow...)
+	for _, name := range n.AllowPresets {
+		if p, ok := LookupPreset(name); ok {
+			rules = append(rules, p.Allow...)
+		}
+	}
+	return rules
+}
+
 // ToProviderNetworkPolicy converts the profile's network section into the
-// provider-agnostic type Provider.ApplyNetworkPolicy expects.
+// provider-agnostic type Provider.ApplyNetworkPolicy expects, with
+// AllowPresets expanded (see AllowRules).
 func (n NetworkPolicy) ToProviderNetworkPolicy() provider.NetworkPolicy {
-	allow := make([]provider.AllowRule, len(n.Allow))
-	for i, a := range n.Allow {
+	rules := n.AllowRules()
+	allow := make([]provider.AllowRule, len(rules))
+	for i, a := range rules {
 		allow[i] = provider.AllowRule{Domain: a.Domain, Ports: append([]int(nil), a.Ports...)}
 	}
 	ports := make([]provider.PortPublish, len(n.Ports))

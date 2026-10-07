@@ -121,10 +121,11 @@ profile.
 `create --agent=<name>` runs that agent's install command (e.g. `curl ... |
 bash`) as soon as the instance is up — see
 [Agent Provisioning](agent-provisioning.md). This needs working egress at
-install time, so a flaky network mid-install, or an unusually restrictive
-`--allow`/profile combination that's missing a domain the install script
-itself redirects through, can leave `create` reporting a failure with the
-instance left running.
+install time, so a flaky network mid-install, or an install script that
+starts fetching from a host agentctl's registry doesn't list yet (each
+agent's allowlist covers the hosts its installer used when it was last
+checked — see [Agent Provisioning](agent-provisioning.md#built-in-registry)),
+can leave `create` reporting a failure with the instance left running.
 
 You don't need to redo anything by hand: the very next `agentctl start
 <name>` — even a completely ordinary one, with no `--agent` flag — detects
@@ -137,6 +138,21 @@ blocked-domain issue.
 An already-successful install is never repeated: `create --agent=<name>`
 records success once the install script exits `0`, and every subsequent
 `start` is a no-op with respect to the agent.
+
+## `apt`, `pip`, `npm` or `git clone` can't reach its server
+
+Egress is default-deny, so package managers and git only work against
+hosts on the instance's allowlist — and they usually need more than one
+host each (pip downloads from `files.pythonhosted.org`, not `pypi.org`;
+GitHub release downloads come from `release-assets.githubusercontent.com`).
+Create the instance with the matching
+[allow presets](profiles-and-policies.md#allowing-package-sources-and-git-hosts),
+e.g. `--allow-preset=apt,pypi,github`, and add anything else with `--allow`.
+The tool's own error usually names the host it couldn't reach (`apt-get
+update` lists each failed URL); on Lima, the instance's egress proxy log
+(see [below](#lima-a-request-from-the-sandbox-gets-403-denied-by-agentctl-network-policy))
+names every refused host:port. The allowlist is set when the instance is
+created, so recreate it with the extra entries.
 
 ## An `--allow` entry stopped working after a while
 

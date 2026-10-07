@@ -37,7 +37,9 @@ Creates an instance without starting it.
 | `--image <ref>` | Image reference (mutually exclusive with `--spec`) |
 | `--spec <file>` | Path to a Spec YAML document (see [Profile Schema](../reference/profile-schema.md)) |
 | `--profile <name>` | Named profile to apply (repeatable) |
-| `--allow <domain[:port,port]>` | Egress allowlist entry (repeatable) |
+| `--allow <entry>` | Egress allowlist entry: `host[:port,port]`, `*.domain[:ports]`, an IP address (`[v6]:port` with brackets), or an `http(s)://` URL, which allows its host on its port. One entry per flag (repeatable); hosts only, not URL paths — see [Egress allowlist](profiles-and-policies.md#egress-allowlist) |
+| `--allow-preset <name>` | Allow a built-in group of hosts: package sources and git hosts (`apt`, `apk`, `pypi`, `npm`, `github`, `gitlab`) or a coding agent's (`claude`, `codex`, `opencode`, `pi`, the same hosts `--agent` allows). Repeatable or comma-separated — see [Allowing package sources and git hosts](profiles-and-policies.md#allowing-package-sources-and-git-hosts) |
+| `--allow-file <path>` | Add the entries of an [allow file](profiles-and-policies.md#allow-files), one `--allow` entry per line (repeatable) |
 | `--deny-lan` / `--allow-lan` | Block (default) or allow LAN egress |
 | `--port <host:guest[/proto]>` | Publish a port (repeatable) |
 | `--cpu-cores`, `--memory`, `--disk-size` | Resource overrides |
@@ -95,6 +97,11 @@ cloud-init package list. `pull` supports `--preview`/`--dry-run`.
 List available profiles (built-in `default`/`strict` plus any file-based
 ones), print one's resolved contents, or set the default profile applied
 when `create` is given no `--profile`/`--spec`.
+
+### `agentctl profile presets`
+
+List the built-in allow presets (`--allow-preset`, `allowPresets`) with the
+exact hosts and ports each one allows.
 
 ## Configuration
 

@@ -31,7 +31,8 @@ independently capability-gated concern (`ApplyNetworkPolicy` is its own
   Opting out should be a deliberate, reviewed decision — see
   [Distributing Profiles Org-Wide](distributing-profiles.md).
 - **Internet egress is default-deny with an explicit allowlist.** A sandbox
-  can only reach domains listed in `--allow`/a profile's `allow` entries;
+  can only reach domains listed in `--allow`/a profile's `allow` entries
+  (or added by an allow preset, an allow file, or `--agent`);
   everything else is rejected.
 - **How domain-based allow rules are matched depends on the backend.**
   - *Incus*: its ACLs (like any IP-based mechanism) can only match resolved
@@ -93,13 +94,36 @@ required install/runtime domains into the instance's egress allowlist
 before applying network policy — the same default-deny-with-explicit-allow
 mechanism `--allow` already uses, not a separate or looser path. This is a
 deliberate, visible widening tied to the specific agent you asked for
-(e.g. `--agent=claude` allows `claude.ai` and `*.anthropic.com`), not a
+(e.g. `--agent=claude` allows `claude.ai`, `downloads.claude.ai`,
+`platform.claude.com` and `api.anthropic.com`), not a
 silent one: `agentctl status`/`profile show`-style introspection of the
 resulting policy shows exactly what was added, same as any other `--allow`
-entry. Two multi-provider agents (`opencode`, `pi`) are documented as only
-guaranteeing their install domain (plus, for `pi`, its default-provider
-runtime domain) — extending the allowlist further for a different model
+entry. The full per-agent lists are in
+[Agent Provisioning](../user/agent-provisioning.md#built-in-registry). Note
+that some are broad: `--agent=opencode` allows `github.com`, because that's
+where opencode's releases are downloaded from, and with it everything else
+on GitHub. Two multi-provider agents (`opencode`, `pi`) are documented as only
+guaranteeing their install (plus, for `pi`, its default provider) —
+extending the allowlist further for a different model
 provider is on you, the same as it would be without `--agent`.
+
+## Presets and allow files are allowlist entries too
+
+`--allow-preset`/`allowPresets` (named groups of package-source and git
+hosts, e.g. `apt`, `pypi`, `github`) and `--allow-file`/`allowFile` expand
+to ordinary allow rules — they're conveniences for writing an allowlist,
+not a different enforcement path. Two things to keep in mind when
+approving one:
+
+- **A preset opens whole hosts, both directions.** Filtering is by host
+  and port, never by URL path or by what's sent, so the `github` preset
+  lets the sandbox *push* to any GitHub repository it has credentials for,
+  not just clone public ones; `pypi`/`npm` allow uploads to those
+  registries if the sandbox holds a publishing token. Treat any
+  allowlisted host that accepts writes as a possible exfiltration channel.
+- **`agentctl profile presets` prints exactly what each preset expands
+  to**, and `profile show` prints a profile's allow file already merged
+  in — review those, not just the preset names, when vetting a profile.
 
 ## Why raw X11 forwarding is excluded
 

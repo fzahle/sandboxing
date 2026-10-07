@@ -29,54 +29,52 @@ type Spec struct {
 }
 
 // Registry is the static table of installable agents, keyed by the name
-// passed to --agent. Values verified directly from each project's own
-// docs (not reconstructed from memory):
-//   - claude:   https://code.claude.com/docs/en/quickstart
-//   - codex:    https://learn.chatgpt.com/docs/codex/cli
-//   - opencode: https://opencode.ai/download
-//   - pi:       https://pi.dev/
+// passed to --agent. Install commands come from each project's own docs
+// (https://code.claude.com/docs/en/quickstart,
+// https://learn.chatgpt.com/docs/codex/cli, https://opencode.ai/download,
+// https://pi.dev/).
 //
-// opencode and pi are explicitly multi-provider: their AllowDomains only
-// guarantee the install domain (opencode) or the install domain plus the
-// default-provider runtime domain (pi, which defaults to Anthropic but
-// supports others) — a user on a different provider extends the
-// allowlist the same way they would for anything else, via --allow.
+// The hosts each agent needs live in the built-in allow preset of the same
+// name (internal/profile/presets.go, which also records where each host
+// list was checked), so `--allow-preset=<name>` allows exactly what
+// `--agent=<name>` does, for when the agent gets installed some other way.
 var Registry = map[string]Spec{
 	"claude": {
 		Name:          "claude",
 		InstallScript: "curl -fsSL https://claude.ai/install.sh | bash",
 		EnvVar:        "ANTHROPIC_API_KEY",
-		AllowDomains: []profile.AllowRule{
-			{Domain: "claude.ai", Ports: []int{443}},
-			{Domain: "*.anthropic.com", Ports: []int{443}},
-		},
+		AllowDomains:  presetRules("claude"),
 	},
 	"codex": {
 		Name:          "codex",
 		InstallScript: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
 		EnvVar:        "OPENAI_API_KEY",
-		AllowDomains: []profile.AllowRule{
-			{Domain: "chatgpt.com", Ports: []int{443}},
-			{Domain: "api.openai.com", Ports: []int{443}},
-		},
+		AllowDomains:  presetRules("codex"),
 	},
 	"opencode": {
 		Name:          "opencode",
 		InstallScript: "curl -fsSL https://opencode.ai/install | bash",
 		EnvVar:        "",
-		AllowDomains: []profile.AllowRule{
-			{Domain: "opencode.ai", Ports: []int{443}},
-		},
+		AllowDomains:  presetRules("opencode"),
 	},
 	"pi": {
 		Name:          "pi",
 		InstallScript: "curl -fsSL https://pi.dev/install.sh | sh",
 		EnvVar:        "ANTHROPIC_API_KEY",
-		AllowDomains: []profile.AllowRule{
-			{Domain: "pi.dev", Ports: []int{443}},
-			{Domain: "*.anthropic.com", Ports: []int{443}},
-		},
+		AllowDomains:  presetRules("pi"),
 	},
+}
+
+// presetRules returns the allow rules of the built-in preset called name.
+// The registry and the preset table are both static, so a missing preset
+// is a build defect (and TestLookup_KnownAgents catches it), not a runtime
+// condition.
+func presetRules(name string) []profile.AllowRule {
+	p, ok := profile.LookupPreset(name)
+	if !ok {
+		panic("agent: no built-in allow preset " + name)
+	}
+	return p.Allow
 }
 
 // Lookup returns the Spec for name and whether it was found.

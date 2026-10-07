@@ -31,21 +31,35 @@ func parsePortFlag(s string) (profile.PortPublish, error) {
 	return profile.PortPublish{Host: host, Guest: guest, Protocol: proto}, nil
 }
 
-// parseAllowFlag parses a "--allow domain[:port,port,...]" value.
-func parseAllowFlag(s string) (profile.AllowRule, error) {
-	parts := strings.SplitN(s, ":", 2)
-	rule := profile.AllowRule{Domain: parts[0]}
-	if rule.Domain == "" {
-		return profile.AllowRule{}, fmt.Errorf("invalid --allow %q: domain must not be empty", s)
+// allowFlagRules turns create's egress flags into allow rules and preset
+// names: each --allow entry (see profile.ParseAllowEntry) and the entries
+// of each --allow-file, in that order, plus the --allow-preset names,
+// checked against the built-in presets. Everything is checked before
+// create does anything, so a typo can't leave a half-made instance.
+func allowFlagRules(allow, allowFiles, presets []string) ([]profile.AllowRule, []string, error) {
+	var rules []profile.AllowRule
+	for _, a := range allow {
+		rule, err := profile.ParseAllowEntry(a)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid --allow %q: %w", a, err)
+		}
+		rules = append(rules, rule)
 	}
-	if len(parts) == 2 {
-		for _, p := range strings.Split(parts[1], ",") {
-			port, err := strconv.Atoi(strings.TrimSpace(p))
-			if err != nil {
-				return profile.AllowRule{}, fmt.Errorf("invalid --allow %q: port %q is not a number", s, p)
-			}
-			rule.Ports = append(rule.Ports, port)
+	for _, f := range allowFiles {
+		path, err := profile.ResolvePath(f, "")
+		if err != nil {
+			return nil, nil, fmt.Errorf("--allow-file: %w", err)
+		}
+		fileRules, err := profile.ReadAllowFile(path)
+		if err != nil {
+			return nil, nil, fmt.Errorf("--allow-file: %w", err)
+		}
+		rules = append(rules, fileRules...)
+	}
+	for _, name := range presets {
+		if _, ok := profile.LookupPreset(name); !ok {
+			return nil, nil, fmt.Errorf("unknown --allow-preset %q (valid: %s; see `agentctl profile presets`)", name, strings.Join(profile.PresetNames(), ", "))
 		}
 	}
-	return rule, nil
+	return rules, presets, nil
 }
