@@ -33,12 +33,44 @@ independently capability-gated concern (`ApplyNetworkPolicy` is its own
 - **Internet egress is default-deny with an explicit allowlist.** A sandbox
   can only reach domains listed in `--allow`/a profile's `allow` entries;
   everything else is rejected.
-- **Domain-based allow rules are IP snapshots, not DNS-aware filtering.**
-  Incus (and any IP-based ACL mechanism) can only match on resolved IP
-  addresses, not domain names. `agentctl` resolves each allowed domain at
-  policy-apply time; if the target rotates IPs (common behind a CDN), the
-  rule goes stale until the policy is re-applied. A DNS-filtering proxy that
-  stays dynamically in sync is a possible future improvement, not built now.
+- **How domain-based allow rules are matched depends on the backend.**
+  - *Incus*: its ACLs (like any IP-based mechanism) can only match resolved
+    IP addresses, not domain names. `agentctl` resolves each allowed domain
+    at policy-apply time; if the target rotates IPs (common behind a CDN),
+    the rule goes stale until the policy is re-applied, and anything else
+    served from an allowlisted IP is reachable too.
+  - *Lima*: egress goes through a per-instance filtering proxy (see
+    [Lima's network enforcement](#lima-network-enforcement-host-side-without-an-acl-object)),
+    which matches the hostname the client asked for and resolves it at
+    connection time — no staleness, and `*.example.com` really covers every
+    subdomain. The flip side: only clients that use the proxy get out at
+    all.
+- **Neither backend inspects TLS.** Filtering is by destination (address or
+  requested hostname), so domain fronting through a CDN shared with an
+  allowlisted domain isn't prevented on either.
+
+## Lima network enforcement: host-side without an ACL object
+
+Lima has no per-instance ACL to put this policy in, and a host `pf` rule on
+the VM's network interface would be bypassable: Lima always gives the guest
+a user-mode NIC whose traffic the hostagent process re-creates as ordinary
+connections *from the host*, invisible to `pf` as guest traffic — a guest
+with root could just route around such a filter. So agentctl puts the
+enforcement on that process instead: `limactl start` (and with it the
+hostagent) runs under a macOS sandbox profile that refuses every outbound
+connection except to the instance's own egress proxy and SSH forward on the
+host's loopback, and the proxy applies the allowlist and deny-LAN rules.
+None of it runs inside the guest, so root in the guest doesn't help; and
+agentctl checks after every start that a direct connection out from the
+guest fails, stopping the instance if it doesn't. Details and trade-offs:
+[Lima setup](providers/lima-setup.md#network-policy-enforcement).
+
+The one way around it is not starting the instance through agentctl: a
+plain `limactl start`, or launchd via `limactl autostart`, runs the
+instance with unrestricted egress. agentctl refuses to start an instance
+registered with launchd and refuses to adopt a running instance it didn't
+start, but treat starting agentctl's Lima instances by other means as
+switching their network policy off.
 
 ## Non-root by default inside the guest
 
@@ -85,12 +117,12 @@ does instead per provider.
 about what it can and can't yet enforce per backend — see the
 [capability matrix](capability-matrix.md). Hyper-V is still a stub this
 milestone; treat any claim of protection on that platform as not yet real
-until its capability entries say `Supported`. Lima's lifecycle operations
-(create/start/stop/exec/shell/...) are real, but its network-isolation
-guarantees are not: `network.acl` and `network.deny-lan` are both
-`ManualWorkaround` there (Lima has no native ACL primitive), so treat any
-claim of egress protection on Lima as not yet automatic either, until those
-two entries say `Supported`.
+until its capability entries say `Supported`. On Lima, `network.acl` and
+`network.deny-lan` are `Supported` on macOS hosts (see
+[above](#lima-network-enforcement-host-side-without-an-acl-object) for the
+mechanism and its one bypass: starting an instance outside agentctl), and
+`Not available` on Linux hosts, where agentctl can't confine Lima's
+processes — use Incus there.
 
 ## Observability is explicitly postponed
 

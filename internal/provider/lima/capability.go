@@ -9,10 +9,10 @@ import "github.com/apomonosi/sandboxing/internal/provider"
 //   - UnderDevelopment: Lima itself supports this fine; agentctl just
 //     hasn't wired the `limactl` integration up yet. It's our roadmap,
 //     not a platform limit.
-//   - ManualWorkaround / NotAvailable: Lima's platform genuinely lacks the
-//     primitive (no network ACL object) or the relevant upstream API is
-//     too unstable to build on yet (limactl snapshot is explicitly
-//     experimental).
+//   - NotAvailable: the platform genuinely lacks the primitive (no local
+//     image store; no way to confine Lima's processes off macOS) or the
+//     relevant upstream API is too unstable to build on yet (limactl
+//     snapshot is explicitly experimental).
 //
 // create/start/stop/delete/list/status/exec/shell/network.port-publish
 // are Supported as of this backend's real implementation (lima.go,
@@ -20,7 +20,15 @@ import "github.com/apomonosi/sandboxing/internal/provider"
 // no local named image store to pull into ahead of `create` — a
 // template's base image resolves lazily, per-instance, inside
 // `create`/`start` itself, so there's no daemon-side store to wire up to.
-func buildCapabilities() provider.Table {
+//
+// network.acl/network.deny-lan are Supported when confine is set (macOS):
+// Lima has no ACL object, but agentctl enforces the same policy Incus's
+// ACL does, host-side, by confining Lima's own processes (network.go).
+// That enforcement is built on macOS's sandbox-exec, so anywhere else
+// (Lima on a Linux host) both are NotAvailable — there's no comparable
+// way to confine the hostagent there, and the Incus provider is the
+// supported choice on Linux anyway.
+func buildCapabilities(confine bool) provider.Table {
 	t := make(provider.Table, len(provider.AllFeatures))
 
 	supported := func(f provider.Feature) {
@@ -61,36 +69,17 @@ func buildCapabilities() provider.Table {
 	t[provider.FeatureSnapshotDelete] = notAvailable(provider.FeatureSnapshotDelete,
 		"limactl snapshot is explicitly experimental/unstable upstream; agentctl won't build on it until it stabilizes.")
 
-	t[provider.FeatureNetworkACL] = provider.Capability{
-		Feature: provider.FeatureNetworkACL,
-		Status:  provider.ManualWorkaround,
-		Message: "Lima has no native egress allowlist primitive; agentctl cannot enforce this automatically yet.",
-		Plan: `Manual workaround (macOS host, per Lima instance):
-1. Identify the instance's vzNAT/socket_vmnet IP:
-     limactl list --format '{{.Name}} {{.IPAddress}}'
-2. On the host, add a pf anchor restricting that IP's egress to the
-   allowed domains' resolved IPs (re-resolve on DNS TTL expiry):
-     anchor "agentctl/<name>" {
-       pass out quick from <instance-ip> to <allowed-ip> port {80,443}
-       block out quick from <instance-ip> to any
-     }
-3. Load it: pfctl -a agentctl/<name> -f /path/to/anchor.conf
-This must be redone on every instance restart until native support lands.`,
+	if confine {
+		supported(provider.FeatureNetworkACL)
+		supported(provider.FeatureDenyLAN)
+		underDev(provider.FeatureLogsNetwork, "Each Lima instance's egress proxy already records every allowed and denied connection (~/.config/agentctl/lima/<name>/egress-proxy.log), but `agentctl logs` isn't wired up to it yet.")
+	} else {
+		const why = "agentctl enforces Lima network policy by confining Lima's own processes with macOS's sandbox-exec, which doesn't exist on this host OS; on Linux, use the incus provider."
+		t[provider.FeatureNetworkACL] = notAvailable(provider.FeatureNetworkACL, why)
+		t[provider.FeatureDenyLAN] = notAvailable(provider.FeatureDenyLAN, why)
+		t[provider.FeatureLogsNetwork] = notAvailable(provider.FeatureLogsNetwork,
+			"No egress log source exists without network policy enforcement, which isn't available for Lima on this host OS.")
 	}
-	t[provider.FeatureDenyLAN] = provider.Capability{
-		Feature: provider.FeatureDenyLAN,
-		Status:  provider.ManualWorkaround,
-		Message: "Same gap as network.acl: Lima has no native ACL object to block RFC1918/link-local egress.",
-		Plan: `Manual workaround (macOS host): extend the pf anchor from the
-network.acl workaround with explicit block rules for RFC1918 and
-link-local ranges, placed before any "pass" rules:
-  block out quick from <instance-ip> to 10.0.0.0/8
-  block out quick from <instance-ip> to 172.16.0.0/12
-  block out quick from <instance-ip> to 192.168.0.0/16
-  block out quick from <instance-ip> to 169.254.0.0/16`,
-	}
-	t[provider.FeatureLogsNetwork] = notAvailable(provider.FeatureLogsNetwork,
-		"No native egress log source exists without the network.acl workaround's pf anchor in place first.")
 
 	return t
 }

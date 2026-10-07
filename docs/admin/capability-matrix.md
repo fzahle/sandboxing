@@ -13,23 +13,18 @@ for which cells are genuine platform gaps.
 | exec / shell | Supported | Supported | Under development |
 | view (console) | Supported | Under development | Under development |
 | snapshot create/list/restore/delete | Supported | **Not available** | Under development |
-| network.acl (`--allow`) | Supported | **Manual workaround** | Under development |
-| network.deny-lan (`--deny-lan`) | Supported | **Manual workaround** | Under development |
+| network.acl (`--allow`) | Supported | Supported (macOS hosts) | Under development |
+| network.deny-lan (`--deny-lan`) | Supported | Supported (macOS hosts) | Under development |
 | network.port-publish (`--port`) | Supported | Supported | **Manual workaround** |
 | image.pull | Supported | **Not available** | Under development |
 | image.build | Supported | Under development | Under development |
-| logs.network / logs.exec | Under development | **Not available** (network only) / Under development | Under development |
+| logs.network / logs.exec | Under development | Under development | Under development |
 
 ## Reading the "genuine platform gap" cells
 
 These are the only entries where the gap is in the *platform*, not just in
 agentctl's own wiring:
 
-- **Lima: network.acl / network.deny-lan → Manual workaround.** Lima has no
-  native egress-allowlist/ACL object. `agentctl` prints a `pf`-anchor-based
-  procedure to achieve the same effect by hand until this is built natively
-  (possibly on top of whatever Lima's own "hardening AI" initiative ships —
-  see [Lima setup](providers/lima-setup.md)).
 - **Lima: snapshot.\* → Not available.** `limactl snapshot` is explicitly
   experimental/unstable upstream; agentctl won't build on it until it
   stabilizes.
@@ -37,11 +32,20 @@ agentctl's own wiring:
   to pull into ahead of `create`; a template's base image resolves lazily,
   per-instance, inside `create`/`start` itself — there's no daemon-side
   store to wire up to, unlike Incus's `incus image copy`.
-- **Lima: logs.network → Not available.** There's no egress log source to
-  read from without the network.acl workaround's `pf` anchor in place first.
 - **Hyper-V: network.port-publish → Manual workaround.** Hyper-V has no
   built-in "publish a port" primitive; agentctl prints a NAT-switch +
   `netsh interface portproxy` procedure.
+
+Lima's network.acl/network.deny-lan entries are `Supported` even though
+Lima has no ACL object: agentctl enforces the same policy host-side by
+confining Lima's own processes with a macOS sandbox profile and routing the
+guest's egress through a per-instance filtering proxy — see
+[Lima setup](providers/lima-setup.md#network-policy-enforcement) for how,
+and for the one practical difference (clients must use the proxy). That
+mechanism is macOS-specific, so on a Linux host the Lima backend reports
+both as **Not available** (use Incus there). Lima's logs.network is `Under
+development` rather than a gap: each instance's proxy already logs every
+allowed and denied connection; `agentctl logs` just isn't wired to it yet.
 
 Every other `Under development` cell reflects a backend that supports the
 feature natively (New-VM/Start-VM, Extended Port ACLs, Standard/Production
@@ -74,10 +78,6 @@ information live, plus (for manual-workaround cells) the actual copyable
 procedure:
 
 ```console
-$ agentctl --provider=lima create demo --image=foo --allow=example.com
-agentctl: network.acl has no native support on provider "lima".
-Lima has no native egress allowlist primitive; agentctl cannot enforce this automatically yet.
-
-Manual workaround (macOS host, per Lima instance):
-...
+$ agentctl --provider=lima image pull template://ubuntu-lts
+agentctl: image.pull is not available on provider "lima": Lima has no local named image store to pull into ahead of create; a template's base image resolves lazily, per-instance, inside create/start itself.
 ```

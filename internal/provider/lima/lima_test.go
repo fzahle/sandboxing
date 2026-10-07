@@ -70,7 +70,7 @@ func TestRealDispatch_MatchesPreview(t *testing.T) {
 
 	t.Run("Create", func(t *testing.T) {
 		fr := &fakeRunner{}
-		p := NewWithRunner(fr).(*Provider)
+		p, _ := newTestProvider(t, fr, false)
 		spec := provider.InstanceSpec{Name: "demo", Image: "template://ubuntu-lts"}
 		if _, err := p.Create(ctx, spec); err != nil {
 			t.Fatalf("Create: %v", err)
@@ -83,7 +83,7 @@ func TestRealDispatch_MatchesPreview(t *testing.T) {
 
 	t.Run("Start", func(t *testing.T) {
 		fr := &fakeRunner{}
-		p := NewWithRunner(fr).(*Provider)
+		p, _ := newTestProvider(t, fr, false)
 		if err := p.Start(ctx, "demo"); err != nil {
 			t.Fatalf("Start: %v", err)
 		}
@@ -93,7 +93,7 @@ func TestRealDispatch_MatchesPreview(t *testing.T) {
 
 	t.Run("Stop", func(t *testing.T) {
 		fr := &fakeRunner{}
-		p := NewWithRunner(fr).(*Provider)
+		p, _ := newTestProvider(t, fr, false)
 		opts := provider.StopOptions{Force: true}
 		if err := p.Stop(ctx, "demo", opts); err != nil {
 			t.Fatalf("Stop: %v", err)
@@ -105,7 +105,7 @@ func TestRealDispatch_MatchesPreview(t *testing.T) {
 	t.Run("Delete", func(t *testing.T) {
 		t.Setenv("AGENTCTL_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
 		fr := &fakeRunner{}
-		p := NewWithRunner(fr).(*Provider)
+		p, _ := newTestProvider(t, fr, false)
 		if err := p.Delete(ctx, "demo", true); err != nil {
 			t.Fatalf("Delete: %v", err)
 		}
@@ -115,7 +115,7 @@ func TestRealDispatch_MatchesPreview(t *testing.T) {
 
 	t.Run("Exec", func(t *testing.T) {
 		fr := &fakeRunner{}
-		p := NewWithRunner(fr).(*Provider)
+		p, _ := newTestProvider(t, fr, false)
 		opts := provider.ExecOptions{Command: []string{"echo", "hi"}}
 		wantCmds, err := p.PreviewExec(ctx, "demo", opts)
 		if err != nil {
@@ -130,7 +130,7 @@ func TestRealDispatch_MatchesPreview(t *testing.T) {
 
 	t.Run("Shell", func(t *testing.T) {
 		fr := &fakeRunner{}
-		p := NewWithRunner(fr).(*Provider)
+		p, _ := newTestProvider(t, fr, false)
 		opts := provider.ShellOptions{}
 		wantCmds, err := p.PreviewShell(ctx, "demo", opts)
 		if err != nil {
@@ -151,7 +151,7 @@ func TestRealDispatch_MatchesPreview(t *testing.T) {
 // Create() runs itself.
 func TestCreate_DoesNotStartOrStopInstance(t *testing.T) {
 	fr := &fakeRunner{}
-	p := NewWithRunner(fr).(*Provider)
+	p, _ := newTestProvider(t, fr, false)
 
 	if _, err := p.Create(context.Background(), provider.InstanceSpec{Name: "demo", Image: "template://ubuntu-lts"}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -190,7 +190,7 @@ func shrinkReadyWait(t *testing.T) {
 func TestExec_WaitsForReadyBeforeRunning(t *testing.T) {
 	shrinkReadyWait(t)
 	fr := &fakeRunner{readyFailCount: 2}
-	p := NewWithRunner(fr).(*Provider)
+	p, _ := newTestProvider(t, fr, false)
 	var stderr bytes.Buffer
 	opts := provider.ExecOptions{Command: []string{"echo", "hi"}, Stderr: &stderr}
 
@@ -211,7 +211,7 @@ func TestExec_WaitsForReadyBeforeRunning(t *testing.T) {
 func TestExec_ReadyNeverBeforeTimeout(t *testing.T) {
 	shrinkReadyWait(t)
 	fr := &fakeRunner{readyFailAlways: true}
-	p := NewWithRunner(fr).(*Provider)
+	p, _ := newTestProvider(t, fr, false)
 
 	_, err := p.Exec(context.Background(), "demo", provider.ExecOptions{Command: []string{"echo", "hi"}})
 	if err == nil {
@@ -236,7 +236,7 @@ func TestExec_ReadyNeverBeforeTimeout(t *testing.T) {
 
 func TestExec_RootFlag_UsesSudoNonInteractive(t *testing.T) {
 	fr := &fakeRunner{}
-	p := NewWithRunner(fr).(*Provider)
+	p, _ := newTestProvider(t, fr, false)
 
 	if _, err := p.Exec(context.Background(), "demo", provider.ExecOptions{Command: []string{"whoami"}, Root: true}); err != nil {
 		t.Fatalf("Exec: %v", err)
@@ -247,7 +247,7 @@ func TestExec_RootFlag_UsesSudoNonInteractive(t *testing.T) {
 
 func TestShell_RootFlag_UsesSudoDashI(t *testing.T) {
 	fr := &fakeRunner{}
-	p := NewWithRunner(fr).(*Provider)
+	p, _ := newTestProvider(t, fr, false)
 
 	if err := p.Shell(context.Background(), "demo", provider.ShellOptions{Root: true}); err != nil {
 		t.Fatalf("Shell: %v", err)
@@ -258,7 +258,7 @@ func TestShell_RootFlag_UsesSudoDashI(t *testing.T) {
 
 func TestList_ParsesInstances(t *testing.T) {
 	fr := &fakeRunner{listJSON: `[{"name":"a","status":"Running"},{"name":"b","status":"Stopped"}]`}
-	p := NewWithRunner(fr).(*Provider)
+	p, _ := newTestProvider(t, fr, false)
 
 	got, err := p.List(context.Background())
 	if err != nil {
@@ -271,7 +271,7 @@ func TestList_ParsesInstances(t *testing.T) {
 
 func TestStatus_NotFound(t *testing.T) {
 	fr := &fakeRunner{listJSON: `[]`}
-	p := NewWithRunner(fr).(*Provider)
+	p, _ := newTestProvider(t, fr, false)
 
 	_, err := p.Status(context.Background(), "missing")
 	if !errors.Is(err, provider.ErrNotFound) {
@@ -290,13 +290,14 @@ func TestName(t *testing.T) {
 }
 
 // TestStubbedMethods_ReturnCapabilityError guards that the still-stubbed
-// methods (view/snapshot/network-ACL/image-pull/image-build/logs) return
-// the sentinel error matching their capability entry, rather than
-// silently no-opping or panicking if called directly (bypassing
-// internal/cli's capability gate).
+// methods (view/snapshot/image-pull/image-build/logs, plus network policy
+// off macOS) return the sentinel error matching their capability entry,
+// rather than silently no-opping or panicking if called directly
+// (bypassing internal/cli's capability gate). The macOS side of network
+// policy is covered in network_test.go.
 func TestStubbedMethods_ReturnCapabilityError(t *testing.T) {
 	fr := &fakeRunner{}
-	p := NewWithRunner(fr).(*Provider)
+	p, _ := newTestProvider(t, fr, false)
 	ctx := context.Background()
 
 	if err := p.View(ctx, "demo", provider.ViewOptions{}); !errors.Is(err, provider.ErrUnderDevelopment) {

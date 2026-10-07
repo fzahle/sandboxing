@@ -134,6 +134,15 @@ to write.
   a second provisioning code path with different timing semantics from
   Incus's.
 
+  **Update:** Lima guests now always have `http_proxy`/`https_proxy`
+  pointed at a per-instance agentctl egress proxy on the host — that's how
+  network policy is enforced on Lima at all (see
+  `lima-pf-firewall.plan.md`). On Lima, then, the org proxy can't be the
+  guest's proxy; it would have to be that egress proxy's *upstream*
+  (agentctl's proxy forwarding allowed CONNECTs through the org proxy
+  instead of dialing out directly), which also makes Mode B's "narrow the
+  ACL to the proxy" largely automatic there.
+
 **CA cert (TLS-interception proxies)** has no existing primitive to build
 on — neither backend currently has a "push a file into the guest"
 operation (confirmed: no `file push`/`FilePush` anywhere in

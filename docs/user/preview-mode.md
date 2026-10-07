@@ -59,6 +59,29 @@ still a stub implementation. Once that backend grows a real implementation,
 it gets `--preview` support the same way Incus and Lima did: by implementing
 the same internal interface (see [Capability Model](../reference/capability-model.md)).
 
+## Lima: `start` shows its network confinement
+
+On the Lima backend (macOS), starting an instance is where its network
+policy gets enforced (see
+[Lima setup](../admin/providers/lima-setup.md#network-policy-enforcement)),
+so `start --preview` shows more than a bare `limactl start` — the full
+sandbox profile included:
+
+```console
+$ agentctl --preview start demo
+limactl edit --tty=false --start=false --set '.networks = []' --set '.ssh.localPort = 62774' --set '.propagateProxyEnv = false' --set '.env.http_proxy = "http://192.168.5.2:62775"' ... demo
+/opt/homebrew/bin/agentctl egress-proxy --listen 127.0.0.1:62775 --policy /Users/me/.config/agentctl/lima/demo/egress-policy.json --pid-file /Users/me/.config/agentctl/lima/demo/egress-proxy.pid
+/usr/bin/sandbox-exec -p '(version 1) (allow default) (deny network-outbound) (allow network-outbound (remote unix-socket)) (allow network-outbound (remote ip "localhost:62774")) (allow network-outbound (remote ip "localhost:62775"))' limactl start demo
+limactl shell demo -- sh -c '...'
+```
+
+(Shortened here; the real output lists every `--set`, and the last line is
+the full in-guest check that a direct connection out is refused.) The ports
+are the ones `start` would pin right now. One caveat to the "no agentctl
+needed" point above: the second line is agentctl itself — its egress proxy
+is what applies the allowlist — so replicating a Lima start by hand means
+running that proxy (or another filtering proxy) too.
+
 ## What guarantees preview output matches reality
 
 Preview output is built from the *exact same* argument-construction code the

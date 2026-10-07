@@ -49,10 +49,17 @@ It matters which of these a `Capability` represents:
   [capability matrix](../admin/capability-matrix.md) for exactly which cells
   these are.
 - **`NotAvailable` / `ManualWorkaround`**: the backend's platform genuinely
-  lacks the primitive (Lima has no ACL object; Hyper-V has no port-publish
-  primitive) or the relevant upstream API is too unstable to build on yet
-  (`limactl snapshot`). `ManualWorkaround` additionally means a concrete
-  procedure exists — the `Plan` field carries it.
+  lacks the primitive (Lima has no local image store; Hyper-V has no
+  port-publish primitive) or the relevant upstream API is too unstable to
+  build on yet (`limactl snapshot`). `ManualWorkaround` additionally means a
+  concrete procedure exists — the `Plan` field carries it.
+
+A missing *native* primitive doesn't have to mean a gap, though: Lima has no
+network ACL object either, but agentctl enforces the same policy on macOS
+by other means (a sandboxed hostagent plus a per-instance egress proxy — see
+[Lima setup](../admin/providers/lima-setup.md#network-policy-enforcement)),
+so those cells are `Supported`. What matters is whether agentctl enforces
+the feature automatically, not which mechanism it uses.
 
 Conflating these would either overstate a genuine platform limitation as
 "just not implemented yet" or understate real, working functionality as a

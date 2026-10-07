@@ -23,10 +23,19 @@ import (
 // accepted, documented limitation, not something to solve here. See
 // docs/user/agent-provisioning.md for the user-facing note.
 
-// instanceState is one instance's JIT-agent-install bookkeeping.
+// instanceState is one instance's JIT-agent-install bookkeeping, plus the
+// network-confinement bookkeeping network.go keeps for the same reason —
+// limactl has nowhere to put it.
 type instanceState struct {
 	AgentRequested string `yaml:"agentRequested,omitempty"`
 	AgentInstalled bool   `yaml:"agentInstalled,omitempty"`
+	// SSHLocalPort and EgressProxyPort are the host loopback ports pinned
+	// for this instance's SSH forward and egress proxy (see pickPorts).
+	SSHLocalPort    int `yaml:"sshLocalPort,omitempty"`
+	EgressProxyPort int `yaml:"egressProxyPort,omitempty"`
+	// ConfinedHostAgentPID is the hostagent agentctl last started under its
+	// network sandbox, while it's running.
+	ConfinedHostAgentPID int `yaml:"confinedHostAgentPID,omitempty"`
 }
 
 // stateFile is the on-disk shape of lima-state.yaml.
@@ -131,6 +140,18 @@ func pendingAgentInstall(name string) (string, error) {
 		return "", nil
 	}
 	return inst.AgentRequested, nil
+}
+
+// updateInstanceState applies fn to name's entry and saves the result.
+func updateInstanceState(name string, fn func(*instanceState)) error {
+	s, err := loadState()
+	if err != nil {
+		return err
+	}
+	inst := s.Instances[name]
+	fn(&inst)
+	s.Instances[name] = inst
+	return saveState(s)
 }
 
 // pruneInstanceState best-effort removes name's entry after a successful

@@ -74,6 +74,7 @@ so explicitly instead of failing with a raw error — see
 		newImageCmd(),
 		newProfileCmd(),
 		newConfigCmd(),
+		newEgressProxyCmd(),
 	)
 	return root
 }

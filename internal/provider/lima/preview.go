@@ -21,15 +21,48 @@ func cmd(args []string) provider.Command {
 // PreviewCreate shows the single `limactl create` command Create() would
 // run. Unlike Incus's PreviewCreate, there's no multi-step start/
 // bootstrap/stop sequence to show — a direct consequence of Create()
-// never starting the instance (see lima.go's Create doc comment).
+// never starting the instance (see lima.go's Create doc comment). On macOS
+// Create also writes the instance's egress policy file (network.go); that's
+// a file agentctl writes, not a command, so there's nothing to show for
+// it — `start --preview` shows the proxy that enforces it.
 func (p *Provider) PreviewCreate(spec provider.InstanceSpec) []provider.Command {
 	return []provider.Command{cmd(buildCreateArgs(spec))}
 }
 
+// PreviewStart, on macOS, shows the confined start sequence startConfined
+// runs for a stopped instance (network.go): the `limactl edit` that
+// re-asserts the configuration confinement depends on, the egress proxy
+// launch, `limactl start` under sandbox-exec, and the in-guest check that
+// direct egress is blocked. It omits only the read-only `limactl list`
+// queries in between (status, effective-config check, hostagent PID) —
+// reads, not part of achieving the sandbox goal, same as Incus's preview
+// omits its trailing status query — and the stop signal sent to a
+// leftover proxy, which isn't a command. The ports in it are the ones a
+// start would pin right now (pickPorts is deterministic for a given
+// machine state); nothing is recorded.
+//
+// If the plan can't be computed (no home directory to keep instance state
+// in, or no free loopback ports), it returns nothing rather than a
+// sequence that isn't what would run — Start itself fails the same way.
 func (p *Provider) PreviewStart(name string) []provider.Command {
-	return []provider.Command{cmd(buildStartArgs(name))}
+	if !p.confine {
+		return []provider.Command{cmd(buildStartArgs(name))}
+	}
+	plan, err := p.planStart(name, false)
+	if err != nil {
+		return nil
+	}
+	return []provider.Command{
+		cmd(buildNetworkEditArgs(name, plan.SSHPort, plan.ProxyPort)),
+		plan.Proxy,
+		{Binary: sandboxExecBinary, Args: buildConfinedStartArgs(name, plan.SSHPort, plan.ProxyPort)},
+		cmd(buildEgressProbeArgs(name)),
+	}
 }
 
+// PreviewStop and PreviewDelete show the limactl command only: on macOS,
+// stopping the instance's egress proxy afterward is a signal to a process
+// agentctl started, not a command.
 func (p *Provider) PreviewStop(name string, opts provider.StopOptions) []provider.Command {
 	return []provider.Command{cmd(buildStopArgs(name, opts))}
 }

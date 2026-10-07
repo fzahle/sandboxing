@@ -10,9 +10,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/apomonosi/sandboxing/internal/egress"
 	"github.com/apomonosi/sandboxing/internal/provider"
 )
 
@@ -30,6 +33,19 @@ var (
 type Provider struct {
 	runner       provider.Runner
 	capabilities provider.Table
+
+	// confine is whether this provider enforces network policy by
+	// confining Lima's processes (network.go). That needs macOS's
+	// sandbox-exec, so it's on exactly when running on macOS; elsewhere
+	// Start is a plain `limactl start` and the capability table reports
+	// network policy as unavailable.
+	confine bool
+	// Seams for network.go's host-side machinery, defaulting to the real
+	// thing; tests substitute fakes.
+	proxy           egressProxy
+	agentctlPath    func() (string, error)
+	portFree        func(port int) bool
+	autostartPlists func(name string) []string
 }
 
 // New builds the Lima provider using the real ExecRunner. It does not
@@ -43,7 +59,19 @@ func New() (provider.Provider, error) {
 // NewWithRunner builds the Lima provider with an injected Runner, for
 // tests that want to fake `limactl` invocations without a real install.
 func NewWithRunner(r provider.Runner) provider.Provider {
-	return &Provider{runner: r, capabilities: buildCapabilities()}
+	return newProvider(r, runtime.GOOS == "darwin")
+}
+
+func newProvider(r provider.Runner, confine bool) *Provider {
+	return &Provider{
+		runner:          r,
+		capabilities:    buildCapabilities(confine),
+		confine:         confine,
+		proxy:           processEgressProxy{},
+		agentctlPath:    os.Executable,
+		portFree:        loopbackPortFree,
+		autostartPlists: autostartPlists,
+	}
 }
 
 func (p *Provider) Name() string { return "lima" }
@@ -64,31 +92,64 @@ func (p *Provider) run(ctx context.Context, args ...string) ([]byte, []byte, err
 // boot, not from a bootstrap step Create() has to run against a running
 // guest — so there's no start/exec/stop dance needed here, and `create`
 // keeps its documented "does not start it" contract for free.
+//
+// On macOS it also records the instance's network policy, which its
+// egress proxy enforces from the first start on (see network.go) — the
+// same point at which Incus's Create applies its ACL.
 func (p *Provider) Create(ctx context.Context, spec provider.InstanceSpec) (*provider.Instance, error) {
 	if _, _, err := p.run(ctx, buildCreateArgs(spec)...); err != nil {
 		return nil, err
 	}
+	if p.confine {
+		if err := p.ApplyNetworkPolicy(ctx, spec.Name, spec.Overrides); err != nil {
+			return nil, fmt.Errorf("applying network policy: %w", err)
+		}
+	}
 	return p.Status(ctx, spec.Name)
 }
 
+// Start boots the instance. On macOS that means booting it confined, with
+// its egress limited to what its network policy allows (startConfined in
+// network.go); elsewhere it's a plain `limactl start`.
 func (p *Provider) Start(ctx context.Context, name string) error {
+	if p.confine {
+		return p.startConfined(ctx, name)
+	}
 	_, _, err := p.run(ctx, buildStartArgs(name)...)
 	return err
 }
 
+// Stop stops the instance, then (on macOS) its egress proxy.
 func (p *Provider) Stop(ctx context.Context, name string, opts provider.StopOptions) error {
-	_, _, err := p.run(ctx, buildStopArgs(name, opts)...)
-	return err
+	if _, _, err := p.run(ctx, buildStopArgs(name, opts)...); err != nil {
+		return err
+	}
+	if p.confine {
+		return p.stopEgress(ctx, name)
+	}
+	return nil
 }
 
 // Delete removes the instance and best-effort prunes its entry from the
-// local agent-install state file, so a reused instance name doesn't
-// inherit a stale PendingAgentInstall marker.
+// local state file, so a reused instance name doesn't inherit a stale
+// PendingAgentInstall marker or pinned ports. On macOS it also stops the
+// instance's egress proxy and removes its policy and log.
 func (p *Provider) Delete(ctx context.Context, name string, force bool) error {
 	if _, _, err := p.run(ctx, buildDeleteArgs(name, force)...); err != nil {
 		return err
 	}
+	var proxyErr error
+	if p.confine {
+		if paths, err := egressPathsFor(name); err == nil {
+			if proxyErr = p.proxy.Stop(ctx, paths); proxyErr == nil {
+				_ = os.RemoveAll(paths.Dir)
+			}
+		}
+	}
 	pruneInstanceState(name)
+	if proxyErr != nil {
+		return fmt.Errorf("instance %q deleted, but stopping its egress proxy failed: %w", name, proxyErr)
+	}
 	return nil
 }
 
@@ -109,19 +170,32 @@ func (p *Provider) List(ctx context.Context) ([]provider.Instance, error) {
 }
 
 func (p *Provider) Status(ctx context.Context, name string) (*provider.Instance, error) {
-	stdout, _, err := p.run(ctx, buildListOneArgs(name)...)
+	j, err := p.inspect(ctx, name)
 	if err != nil {
 		return nil, err
+	}
+	inst := toInstance(j)
+	return &inst, nil
+}
+
+// inspect returns name's entry from `limactl list <name> --json`, matched
+// by name rather than taken on faith from the first line, since
+// network.go makes security decisions from it.
+func (p *Provider) inspect(ctx context.Context, name string) (limaInstanceJSON, error) {
+	stdout, _, err := p.run(ctx, buildListOneArgs(name)...)
+	if err != nil {
+		return limaInstanceJSON{}, err
 	}
 	raw, err := parseLimaList(stdout)
 	if err != nil {
-		return nil, err
+		return limaInstanceJSON{}, err
 	}
-	if len(raw) == 0 {
-		return nil, provider.ErrNotFound
+	for _, j := range raw {
+		if j.Name == name {
+			return j, nil
+		}
 	}
-	inst := toInstance(raw[0])
-	return &inst, nil
+	return limaInstanceJSON{}, provider.ErrNotFound
 }
 
 func (p *Provider) Exec(ctx context.Context, name string, opts provider.ExecOptions) (int, error) {
@@ -199,8 +273,19 @@ func (p *Provider) View(ctx context.Context, name string, opts provider.ViewOpti
 	return p.err(provider.FeatureView)
 }
 
+// ApplyNetworkPolicy records policy as the instance's egress policy (on
+// macOS; see network.go). The instance's egress proxy enforces it from its
+// next new connection on — there are no backend commands to run, and the
+// policy file is re-read whenever it changes.
 func (p *Provider) ApplyNetworkPolicy(ctx context.Context, name string, policy provider.NetworkPolicy) error {
-	return p.err(provider.FeatureNetworkACL)
+	if !p.confine {
+		return p.err(provider.FeatureNetworkACL)
+	}
+	paths, err := egressPathsFor(name)
+	if err != nil {
+		return err
+	}
+	return egress.WritePolicy(paths.Policy, toEgressPolicy(policy))
 }
 
 func (p *Provider) ImagePull(ctx context.Context, ref string) error {

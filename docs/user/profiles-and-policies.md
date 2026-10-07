@@ -25,10 +25,15 @@ spec:
   NAS boxes, internal admin panels, coworkers' laptops. Only set this to
   `false` (or pass `--allow-lan`) if you specifically need the sandbox to
   reach something on your LAN, and understand the tradeoff.
-- **`allow`** is an egress allowlist; everything not matched is denied.
-  Domains are resolved to IP addresses when the policy is applied — this is a
-  snapshot of the domain's current IPs, not dynamic DNS-aware filtering. If a
-  target rotates IPs (common behind a CDN), re-apply the policy to refresh it.
+- **`allow`** is an egress allowlist; everything not matched is denied. On
+  Incus, domains are resolved to IP addresses when the policy is applied —
+  a snapshot of the domain's current IPs, not dynamic DNS-aware filtering;
+  if a target rotates IPs (common behind a CDN), re-apply the policy to
+  refresh it. On Lima, the sandbox's traffic goes through a filtering proxy
+  that matches the requested hostname on every connection instead, so only
+  clients that use the proxy (most do — see
+  [Lima setup](../admin/providers/lima-setup.md#what-this-means-in-practice))
+  get out at all.
 - **`ports`** are Docker-style host:guest port publishes, for when you need to
   reach something the sandbox is running (e.g. a web UI) from your host.
 

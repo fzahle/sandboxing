@@ -15,17 +15,20 @@ import (
 // the gated integration test (integration_test.go, //go:build integration)
 // is where a mismatch should be caught.
 //
-// buildCreateArgs's `--set <yq-expression>` mechanism is the single
-// biggest unverified assumption here: it assumes `limactl create` accepts
-// a repeatable --set flag the same way `limactl edit` is documented to,
-// that multiple --set flags on one invocation all apply (not just the
-// last), and that Lima's bundled yq dialect accepts `+=` array-append
-// syntax on a field the base template doesn't already declare (e.g.
-// `.mounts += [...]` when the template has no `mounts:` key at all). If
-// `--set` isn't accepted by `create`, buildEditArgs below is the ready
-// fallback: `limactl create` bare, then one `limactl edit --set <expr>
-// <name>` call per expression before the first `start` — same
-// one-VM-per-sandbox architecture, only the invocation count changes.
+// buildCreateArgs's `--set <yq-expression>` mechanism was the biggest
+// unverified assumption here; it's since been checked against Lima v2.2's
+// source, though still not a live install. `create` (like `edit` and
+// `start`) registers --set as a repeatable flag, and every --set on one
+// invocation applies: Lima joins them with " | " into one expression for
+// its embedded yqlib (v4.53). Evaluating this file's expressions that same
+// way — same yqlib version, with Lima's env/file-operator restrictions on —
+// shows `.mounts += [...]` works even when the template has no `mounts:`
+// key, and that `.env.<name> = ...` paths are unaffected by the disabled
+// `env` operator. If --set somehow isn't accepted by `create`,
+// buildEditArgs below is the ready fallback: `limactl create` bare, then
+// one `limactl edit --set <expr> <name>` call per expression before the
+// first `start` — same one-VM-per-sandbox architecture, only the
+// invocation count changes.
 
 // defaultUsername mirrors Incus's own default ("agent"), applied whenever
 // InstanceSpec.DefaultUser is empty. Lima's own default templates already
@@ -70,11 +73,11 @@ func buildEditArgs(name, expr string) []string {
 // attach post-hoc the way Incus's `-p` does, so there's nothing left to
 // map spec.Profiles onto.
 //
-// spec.Overrides.DenyLAN/.Allow are likewise not translated here —
-// network.acl/network.deny-lan stay ManualWorkaround, and
-// internal/cli/create.go's capability gate has already blocked or
-// (--force-partial) accepted running without enforcement before Create()
-// is ever called, so there's nothing backend-native to invoke for them.
+// spec.Overrides.DenyLAN/.Allow are likewise not translated here: Lima
+// has no lima.yaml setting that could enforce them. On macOS, Create
+// records them as the instance's egress policy and every start enforces
+// it host-side, re-asserting the lima.yaml settings that depends on (see
+// network.go's buildNetworkEditArgs) rather than baking them in once here.
 func buildSetExpressions(spec provider.InstanceSpec) []string {
 	var exprs []string
 
